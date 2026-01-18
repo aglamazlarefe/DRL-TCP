@@ -58,7 +58,7 @@ TcpGymEnv::SetSocketUuid(uint32_t id)
 
 std::string
 TcpGymEnv::GetTcpCongStateName(const TcpSocketState::TcpCongState_t state)
-{
+{ //hata ayıklama için TCP soket değerini string'e çevirme
   std::string stateName = "UNKNOWN";
   switch(state) {
     case TcpSocketState::CA_OPEN:
@@ -122,14 +122,10 @@ TcpGymEnv::GetTcpCAEventName(const TcpSocketState::TcpCAEvent_t event)
   return eventName;
 }
 
-/*
-Define action space
-*/
+//Eylem alanının tanımlanması
 Ptr<OpenGymSpace>
 TcpGymEnv::GetActionSpace()
 {
-  // new_ssThresh
-  // new_cWnd
   uint32_t parameterNum = 2;
   float low = 0.0;
   float high = 65535;
@@ -141,9 +137,7 @@ TcpGymEnv::GetActionSpace()
   return box;
 }
 
-/*
-Define game over condition
-*/
+//Gameover fonksiyonunun tanımlanması
 bool
 TcpGymEnv::GetGameOver()
 {
@@ -158,9 +152,7 @@ TcpGymEnv::GetGameOver()
   return m_isGameOver;
 }
 
-/*
-Define reward function
-*/
+//ödül fonksiyonunun tanımlanması
 float
 TcpGymEnv::GetReward()
 {
@@ -168,9 +160,7 @@ TcpGymEnv::GetReward()
   return m_envReward;
 }
 
-/*
-Define extra info. Optional
-*/
+
 std::string
 TcpGymEnv::GetExtraInfo()
 {
@@ -178,9 +168,6 @@ TcpGymEnv::GetExtraInfo()
   return m_info;
 }
 
-/*
-Execute received actions
-*/
 bool
 TcpGymEnv::ExecuteActions(Ptr<OpenGymDataContainer> action)
 {
@@ -237,27 +224,10 @@ TcpEventGymEnv::SetPenalty(float value)
   m_penalty = value;
 }
 
-/*
-Define observation space
-*/
+//Gözlem alanının tanımlanması
 Ptr<OpenGymSpace>
 TcpEventGymEnv::GetObservationSpace()
 {
-  // socket unique ID
-  // tcp env type: event-based = 0 / time-based = 1
-  // sim time in us
-  // node ID
-  // ssThresh
-  // cWnd
-  // segmentSize
-  // segmentsAcked
-  // bytesInFlight
-  // rtt in us
-  // min rtt in us
-  // called func
-  // congestion algorithm (CA) state
-  // CA event
-  // ECN state
   uint32_t parameterNum = 10;
   float low = 0.0;
   float high = 1000000000.0;
@@ -269,9 +239,7 @@ TcpEventGymEnv::GetObservationSpace()
   return box;
 }
 
-/*
-Collect observations
-*/
+//gözlemlerin toplanması 
 Ptr<OpenGymDataContainer>
 TcpEventGymEnv::GetObservation()
 {
@@ -290,13 +258,6 @@ TcpEventGymEnv::GetObservation()
   box->AddValue(m_segmentsAcked);
   box->AddValue(m_bytesInFlight);
   box->AddValue(m_rtt.GetMicroSeconds ());
-  //box->AddValue(m_tcb->m_minRtt.GetMicroSeconds ());
-  //box->AddValue(m_calledFunc);
-  //box->AddValue(m_tcb->m_congState);
-  //box->AddValue(m_event);
-  //box->AddValue(m_tcb->m_ecnState);
-
-  // Print data
   NS_LOG_INFO ("MyGetObservation: " << box);
   return box;
 }
@@ -317,7 +278,7 @@ uint32_t
 TcpEventGymEnv::GetSsThresh (Ptr<const TcpSocketState> tcb, uint32_t bytesInFlight)
 {
   NS_LOG_FUNCTION (this);
-  // pkt was lost, so penalty
+  // packet düşmesi algılanmış o zaman ceza 
   m_envReward = m_penalty;
 
   NS_LOG_INFO(Simulator::Now() << " Node: " << m_nodeId << " GetSsThresh, BytesInFlight: " << bytesInFlight);
@@ -333,7 +294,7 @@ void
 TcpEventGymEnv::IncreaseWindow (Ptr<TcpSocketState> tcb, uint32_t segmentsAcked)
 {
   NS_LOG_FUNCTION (this);
-  // pkt was acked, so reward
+  // paket onaylanmış, ödül veriliyor
   m_envReward = m_reward;
 
   NS_LOG_INFO(Simulator::Now() << " Node: " << m_nodeId << " IncreaseWindow, SegmentsAcked: " << segmentsAcked);
@@ -450,28 +411,10 @@ TcpTimeStepGymEnv::SetPenalty(float value)
   m_penalty = value;
 }
 
-/*
-Define observation space
-*/
+//Gözlem alanının tanımlanması
 Ptr<OpenGymSpace>
 TcpTimeStepGymEnv::GetObservationSpace()
 {
-  // socket unique ID
-  // tcp env type: event-based = 0 / time-based = 1
-  // sim time in us
-  // node ID
-  // ssThresh
-  // cWnd
-  // segmentSize
-  // bytesInFlightSum
-  // bytesInFlightAvg
-  // segmentsAckedSum
-  // segmentsAckedAvg
-  // avgRtt
-  // minRtt
-  // avgInterTx
-  // avgInterRx
-  // throughput
   uint32_t parameterNum = 16;
   float low = 0.0;
   float high = 1000000000.0;
@@ -483,9 +426,7 @@ TcpTimeStepGymEnv::GetObservationSpace()
   return box;
 }
 
-/*
-Collect observations
-*/
+//gözlemlerin toplanması 
 Ptr<OpenGymDataContainer>
 TcpTimeStepGymEnv::GetObservation()
 {
@@ -548,43 +489,31 @@ TcpTimeStepGymEnv::GetObservation()
   }
   box->AddValue(avgInterRx.GetMicroSeconds ());
 
-  //throughput  bytes/s
+  //throughput(ağ verimi)  bytes/s
   float throughput = (segmentsAckedSum * m_tcb->m_segmentSize) / m_timeStep.GetSeconds();
   box->AddValue(throughput);
 
-/*---------------------------------------------------------------------------------------------------*/
-/*---------------------------------------------------------------------------------------------------*/
-/*---------------------------------------------------------------------------------------------------*/
 
-  // Update reward based on overall average of avgRtt over all steps so far
-  // only when agent increases cWnd
-  // TODO: this is not the right way of doing this.
-  // place this somewhere else. see TcpEventGymEnv, how they've done it.
-
-  if (m_new_cWnd > m_old_cWnd && m_totalAvgRttSum > 0 && avgRtt > 0)  {
-    // when agent increases cWnd
+  if (m_new_cWnd > m_old_cWnd && m_totalAvgRttSum.GetSeconds() > 0 && avgRtt.GetSeconds() > 0)  {
+    //ajan cWnd değerini arttırdıysa 
     if ((m_totalAvgRttSum / m_totalAvgRttNum) >= avgRtt)  {
-      // give reward for decreasing avgRtt
+      // eğer avgRTT azaldıysa ödül verir
       m_envReward = m_reward;
     } else {
-      // give penalty for increasing avgRtt
+      // eğer avgRTT arttıysa ceza verir
       m_envReward = m_penalty;
     }
   } else  {
-    // agent has not increased cWnd
+    // cWnd değişmemiş
     m_envReward = 0;
   }
 
-  // Update m_totalAvgRtSum and m_totalAvgRttNum
   m_totalAvgRttSum += avgRtt;
   m_totalAvgRttNum++;
 
   m_old_cWnd = m_new_cWnd;
-/*---------------------------------------------------------------------------------------------------*/
-/*---------------------------------------------------------------------------------------------------*/
-/*---------------------------------------------------------------------------------------------------*/
 
-  // Print data
+
   NS_LOG_INFO ("MyGetObservation: " << box);
 
   m_bytesInFlight.clear();

@@ -1,19 +1,5 @@
-# Byte-compiled / optimized / DLL files
+*.o
+*.pcap
+*.tr
 __pycache__/
-*.py[cod]
-*$py.class
-
-# C extensions
-*.so
-
-# Environments
-.env
-.venv
-env/
-venv/
-ENV/
-env.bak/
-venv.bak/
-
-# Log files
-*.log
+.vscode/

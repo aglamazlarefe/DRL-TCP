@@ -1,18 +1,7 @@
-/* Topology:
- *
- *   Right Leafs (Clients)                      Left Leafs (Sinks)
- *           |            \                    /        |
- *           |             \    bottleneck    /         |
- *           |              R0--------------R1          |
- *           |             /                  \         |
- *           |   access   /                    \ access |
- *           N -----------                      --------N
- */
-
 #include <iostream>
 #include <fstream>
 #include <string>
-
+#include <algorithm> // Required for std::min
 #include "ns3/core-module.h"
 #include "ns3/network-module.h"
 #include "ns3/internet-module.h"
@@ -26,7 +15,8 @@
 #include "ns3/flow-monitor-helper.h"
 #include "ns3/ipv4-global-routing-helper.h"
 #include "ns3/traffic-control-module.h"
-
+#include "ns3/tcp-cubic.h"
+  
 #include "ns3/opengym-module.h"
 #include "tcp-rl.h"
 
@@ -51,9 +41,116 @@ PrintRxCount()
     NS_LOG_UNCOND("---SinkId: "<< i << " RxPkts: " << rxPkts.at(i));
   }
 }
+struct PerformanceMetrics {
+  double time;
+  double throughput;
+  double avgRtt;
+  uint32_t packetLoss;
+  double NEP;
+  double WBI;
+};
+
+// This map will store the stats from the previous interval.
+static std::map<FlowId, FlowMonitor::FlowStats> g_lastStats;
+
+void CollectMetrics(Ptr<FlowMonitor> monitor, double interval, std::vector<PerformanceMetrics>* metrics, double duration) {
+    double currentTime = Simulator::Now().GetSeconds();
+    monitor->CheckForLostPackets(); // Update lost packet counts
+    auto currentStats = monitor->GetFlowStats();
+
+    uint64_t intervalTxBytes = 0;
+    uint64_t intervalRxBytes = 0;
+    Time intervalDelaySum = Seconds(0);
+    uint32_t intervalRxPackets = 0;
+    uint32_t intervalLostPackets = 0;
+
+    // Aggregate stats across all flows for this interval
+    for (auto const& kv : currentStats) {
+        FlowId flowId = kv.first;
+        const auto& s = kv.second;
+
+        // Find the stats from the last interval for this flow
+        auto it = g_lastStats.find(flowId);
+        if (it != g_lastStats.end()) {
+            // This flow existed in the last interval, so calculate the delta
+            const auto& last_s = it->second;
+            intervalTxBytes += (s.txBytes >= last_s.txBytes) ? (s.txBytes - last_s.txBytes) : s.txBytes;
+            intervalRxBytes += (s.rxBytes >= last_s.rxBytes) ? (s.rxBytes - last_s.rxBytes) : s.rxBytes;
+            intervalDelaySum += (s.delaySum >= last_s.delaySum) ? (s.delaySum - last_s.delaySum) : s.delaySum;
+            intervalRxPackets += (s.rxPackets >= last_s.rxPackets) ? (s.rxPackets - last_s.rxPackets) : s.rxPackets;
+            intervalLostPackets += (s.lostPackets >= last_s.lostPackets) ? (s.lostPackets - last_s.lostPackets) : s.lostPackets;
+        } else {
+            // This is a new flow, delta is the current value
+            intervalTxBytes += s.txBytes;
+            intervalRxBytes += s.rxBytes;
+            intervalDelaySum += s.delaySum;
+            intervalRxPackets += s.rxPackets;
+            intervalLostPackets += s.lostPackets;
+        }
+    }
+
+    // Update the global last stats map for the next interval call
+    g_lastStats = currentStats;
+
+    // Calculate and store the metrics for this interval
+    if (interval > 0) {
+        double throughput_bps = (intervalRxBytes * 8.0) / interval;
+        double avgRtt_s = (intervalRxPackets > 0) ? (intervalDelaySum.GetSeconds() / intervalRxPackets) : 0.0;
+
+        // NEP and WBI are typically calculated over the total simulation run,
+        // as interval-based values can be noisy. We will use the cumulative values for these.
+        uint64_t totalTxBytes = 0;
+        uint64_t totalRxBytes = 0;
+        for (auto const& kv : currentStats) {
+            totalTxBytes += kv.second.txBytes;
+            totalRxBytes += kv.second.rxBytes;
+        }
+        double nep = (totalRxBytes > 0) ? (static_cast<double>(totalTxBytes) / totalRxBytes) : 0.0;
+        double wbi = (totalTxBytes > 0) ? (static_cast<double>(totalTxBytes - totalRxBytes) / totalTxBytes) : 0.0;
+
+        PerformanceMetrics pm = {
+            currentTime,
+            throughput_bps,
+            avgRtt_s,
+            intervalLostPackets, // Packet loss in this interval
+            nep,
+            wbi
+        };
+        metrics->push_back(pm);
+    }
+
+    // Schedule the next collection if the simulation is not over
+    if (Simulator::Now() + Seconds(interval) < Seconds(duration)) {
+        Simulator::Schedule(Seconds(interval), &CollectMetrics, monitor, interval, metrics, duration);
+    }
+}
 
 
-int main (int argc, char *argv[])
+void SaveMetricsToFiles(const std::vector<PerformanceMetrics>& metrics) {
+    // Time, Throughput, RTT, Packet Loss dosyası
+    std::ofstream mainFile("/home/aglamazlarefe/ns-allinone-3.35/ns-3.35/contrib/opengym/examples/TCP-RL/result.txt");
+    mainFile << "Time (s), Throughput (bps), Average RTT (s), Packet Loss (packets)\n";
+    for (const auto& m : metrics) {
+        mainFile << m.time << ", "
+                 << m.throughput << ", "
+                 << m.avgRtt << ", "
+                 << m.packetLoss << "\n";
+    }
+    mainFile.close();
+
+    // NEP ve WBI dosyası
+    std::ofstream nepWbiFile("nep_wbi_metrics.txt");
+    nepWbiFile << "Time (s), NEP, WBI\n";
+    for (const auto& m : metrics) {
+        nepWbiFile << m.time << ", "
+                   << m.NEP << ", "
+                   << m.WBI << "\n";
+    }
+    nepWbiFile.close();
+}
+
+
+int main (int argc, char *argv[]) 
 {
   uint32_t openGymPort = 5555;
   double tcpEnvTimeStep = 0.1;
@@ -63,49 +160,29 @@ int main (int argc, char *argv[])
 
   double error_p = 0.0;
   std::string bottleneck_bandwidth = "2Mbps";
-  std::string bottleneck_delay = "0.01ms";
+  std::string bottleneck_delay = "10ms";
   std::string access_bandwidth = "10Mbps";
   std::string access_delay = "20ms";
+  double duration = 10.0;
+  
   std::string prefix_file_name = "TcpVariantsComparison";
   uint64_t data_mbytes = 0;
   uint32_t mtu_bytes = 400;
-  double duration = 10.0;
   uint32_t run = 0;
-  bool flow_monitor = false;
+  bool flow_monitor = true;
   bool sack = true;
   std::string queue_disc_type = "ns3::PfifoFastQueueDisc";
   std::string recovery = "ns3::TcpClassicRecovery";
 
   double rew = 1.0;
-  double pen = -1.0;
+  double pen = -0.5;
 
   CommandLine cmd;
-  // required parameters for OpenGym interface
-  cmd.AddValue ("openGymPort", "Port number for OpenGym env. Default: 5555", openGymPort);
-  cmd.AddValue ("simSeed", "Seed for random generator. Default: 1", run);
-  cmd.AddValue ("envTimeStep", "Time step interval for time-based TCP env [s]. Default: 0.1s", tcpEnvTimeStep);
-  // other parameters
-  cmd.AddValue ("nLeaf",     "Number of left and right side leaf nodes", nLeaf);
-  cmd.AddValue ("transport_prot", "Transport protocol to use: TcpNewReno, "
-                "TcpHybla, TcpHighSpeed, TcpHtcp, TcpVegas, TcpScalable, TcpVeno, "
-                "TcpBic, TcpYeah, TcpIllinois, TcpWestwood, TcpWestwoodPlus, TcpLedbat, "
-		            "TcpLp, TcpRl, TcpRlTimeBased", transport_prot);
-  cmd.AddValue ("error_p", "Packet error rate", error_p);
-  cmd.AddValue ("bottleneck_bandwidth", "Bottleneck bandwidth", bottleneck_bandwidth);
-  cmd.AddValue ("bottleneck_delay", "Bottleneck delay", bottleneck_delay);
-  cmd.AddValue ("access_bandwidth", "Access link bandwidth", access_bandwidth);
-  cmd.AddValue ("access_delay", "Access link delay", access_delay);
-  cmd.AddValue ("prefix_name", "Prefix of output trace file", prefix_file_name);
-  cmd.AddValue ("data", "Number of Megabytes of data to transmit", data_mbytes);
-  cmd.AddValue ("mtu", "Size of IP packets to send in bytes", mtu_bytes);
-  cmd.AddValue ("duration", "Time to allow flows to run in seconds", duration);
-  cmd.AddValue ("run", "Run index (for setting repeatable seeds)", run);
-  cmd.AddValue ("flow_monitor", "Enable flow monitor", flow_monitor);
-  cmd.AddValue ("queue_disc_type", "Queue disc type for gateway (e.g. ns3::CoDelQueueDisc)", queue_disc_type);
-  cmd.AddValue ("sack", "Enable or disable SACK option", sack);
-  cmd.AddValue ("recovery", "Recovery algorithm type to use (e.g., ns3::TcpPrrRecovery", recovery);
-  cmd.AddValue ("reward", "Agent reward value", rew);
-  cmd.AddValue ("penalty", "Agent penalty value", pen);
+
+
+  cmd.AddValue ("transport_prot", "Transport protocol to use: TcpNewReno, TcpRlTimeBased", transport_prot);
+  cmd.AddValue ("duration", "Simulation duration in seconds", duration);
+
   cmd.Parse (argc, argv);
 
   transport_prot = std::string ("ns3::") + transport_prot;
@@ -113,8 +190,9 @@ int main (int argc, char *argv[])
   SeedManager::SetSeed (1);
   SeedManager::SetRun (run);
 
+// TCP olarak hangi algoritma kullanılacağını seçiyor
   NS_LOG_UNCOND("Ns3Env parameters:");
-  if (transport_prot.compare ("ns3::TcpRl") == 0 or transport_prot.compare ("ns3::TcpRlTimeBased") == 0)
+  if (transport_prot.compare ("ns3::TcpRlTimeBased") == 0)
   {
     NS_LOG_UNCOND("--openGymPort: " << openGymPort);
   } else {
@@ -126,22 +204,15 @@ int main (int argc, char *argv[])
 
 
 
-  // OpenGym Env --- has to be created before any other thing
+  // OpenGym Env ns3-gym için gerekli ortam 
   Ptr<OpenGymInterface> openGymInterface;
-  if (transport_prot.compare ("ns3::TcpRl") == 0)
-  {
-    openGymInterface = OpenGymInterface::Get(openGymPort);
-    Config::SetDefault ("ns3::TcpRl::Reward", DoubleValue (2.0)); // Reward when increasing congestion window
-    Config::SetDefault ("ns3::TcpRl::Penalty", DoubleValue (-30.0)); // Penalty when decreasing congestion window
-  }
-
   if (transport_prot.compare ("ns3::TcpRlTimeBased") == 0)
   {
     openGymInterface = OpenGymInterface::Get(openGymPort);
-    Config::SetDefault ("ns3::TcpRlTimeBased::StepTime", TimeValue (Seconds(tcpEnvTimeStep))); // Time step of env
-    Config::SetDefault ("ns3::TcpRlTimeBased::Duration", TimeValue (Seconds(duration))); // Duration of env sim
-    Config::SetDefault ("ns3::TcpRlTimeBased::Reward", DoubleValue (rew)); // Reward
-    Config::SetDefault ("ns3::TcpRlTimeBased::Penalty", DoubleValue (pen)); // Penalty
+    Config::SetDefault ("ns3::TcpRlTimeBased::StepTime", TimeValue (Seconds(tcpEnvTimeStep))); // adım değeri
+    Config::SetDefault ("ns3::TcpRlTimeBased::Duration", TimeValue (Seconds(duration))); // zaman değeri
+    Config::SetDefault ("ns3::TcpRlTimeBased::Reward", DoubleValue (rew)); // ödül
+    Config::SetDefault ("ns3::TcpRlTimeBased::Penalty", DoubleValue (pen)); // ceza
   }
 
   // Calculate the ADU size
@@ -156,37 +227,37 @@ int main (int argc, char *argv[])
   uint32_t tcp_adu_size = mtu_bytes - 20 - (ip_header + tcp_header);
   NS_LOG_LOGIC ("TCP ADU size is: " << tcp_adu_size);
 
-  // Set the simulation start and stop time
-  double start_time = 0.1; // it takes some time to initialise some variables, idk why
+  
+  double start_time = 0.1; 
   double stop_time = start_time + duration;
 
-  // 4 MB of TCP buffer
+  // 4 MB  TCP buffer
   Config::SetDefault ("ns3::TcpSocket::RcvBufSize", UintegerValue (1 << 21));
   Config::SetDefault ("ns3::TcpSocket::SndBufSize", UintegerValue (1 << 21));
   Config::SetDefault ("ns3::TcpSocketBase::Sack", BooleanValue (sack));
-  // no. of packets received before an ACK is sent (why is the default 2?)
+  
   Config::SetDefault ("ns3::TcpSocket::DelAckCount", UintegerValue (2));
 
 
   Config::SetDefault ("ns3::TcpL4Protocol::RecoveryType",
                       TypeIdValue (TypeId::LookupByName (recovery)));
-  // Select TCP variant
-  if (transport_prot.compare ("ns3::TcpWestwoodPlus") == 0)
-    {
-      // TcpWestwoodPlus is not an actual TypeId name; we need TcpWestwood here
-      Config::SetDefault ("ns3::TcpL4Protocol::SocketType", TypeIdValue (TcpWestwood::GetTypeId ()));
-      // the default protocol type in ns3::TcpWestwood is WESTWOOD
-      Config::SetDefault ("ns3::TcpWestwood::ProtocolType", EnumValue (TcpWestwood::WESTWOODPLUS));
-    }
-  else
-    {
-      TypeId tcpTid;
-      NS_ABORT_MSG_UNLESS (TypeId::LookupByNameFailSafe (transport_prot, &tcpTid), "TypeId " << transport_prot << " not found");
-      Config::SetDefault ("ns3::TcpL4Protocol::SocketType", TypeIdValue (TypeId::LookupByName (transport_prot)));
-    }
+  
 
-  // Configure the error model
-  // Here we use RateErrorModel with packet error rate
+if (transport_prot.compare("ns3::TcpNewReno") == 0) {
+    Config::SetDefault ("ns3::TcpL4Protocol::SocketType", TypeIdValue (TcpNewReno::GetTypeId ()));
+}
+else if (transport_prot.compare("ns3::TcpCubic") == 0) {
+    Config::SetDefault ("ns3::TcpL4Protocol::SocketType", TypeIdValue (TcpCubic::GetTypeId ()));
+}
+else {
+    TypeId tcpTid;
+    NS_ABORT_MSG_UNLESS (TypeId::LookupByNameFailSafe (transport_prot, &tcpTid), "TypeId " << transport_prot << " not found");
+    Config::SetDefault ("ns3::TcpL4Protocol::SocketType", TypeIdValue (TypeId::LookupByName (transport_prot)));
+}
+
+
+
+  // error modeli kurulumu
   Ptr<UniformRandomVariable> uv = CreateObject<UniformRandomVariable> ();
   uv->SetStream (50);
   RateErrorModel error_model;
@@ -194,11 +265,10 @@ int main (int argc, char *argv[])
   error_model.SetUnit (RateErrorModel::ERROR_UNIT_PACKET);
   error_model.SetRate (error_p);
 
-  // Create the point-to-point link helpers
+  //  point-to-point bağlantılarını kur
   PointToPointHelper bottleNeckLink;
   bottleNeckLink.SetDeviceAttribute  ("DataRate", StringValue (bottleneck_bandwidth));
   bottleNeckLink.SetChannelAttribute ("Delay", StringValue (bottleneck_delay));
-  //bottleNeckLink.SetDeviceAttribute  ("ReceiveErrorModel", PointerValue (&error_model));
 
   PointToPointHelper pointToPointLeaf;
   pointToPointLeaf.SetDeviceAttribute  ("DataRate", StringValue (access_bandwidth));
@@ -208,16 +278,15 @@ int main (int argc, char *argv[])
                                 nLeaf, pointToPointLeaf,
                                 bottleNeckLink);
 
-  // Install IP stack
+  // Ip stacklerini yükle 
   InternetStackHelper stack;
   stack.InstallAll ();
 
-  // Traffic Control
+
   TrafficControlHelper tchPfifo;
   tchPfifo.SetRootQueueDisc ("ns3::PfifoFastQueueDisc");
 
-  TrafficControlHelper tchCoDel;
-  tchCoDel.SetRootQueueDisc ("ns3::CoDelQueueDisc");
+
 
   DataRate access_b (access_bandwidth);
   DataRate bottle_b (bottleneck_bandwidth);
@@ -229,25 +298,12 @@ int main (int argc, char *argv[])
 
   Config::SetDefault ("ns3::PfifoFastQueueDisc::MaxSize",
                       QueueSizeValue (QueueSize (QueueSizeUnit::PACKETS, size / mtu_bytes)));
-  Config::SetDefault ("ns3::CoDelQueueDisc::MaxSize",
-                      QueueSizeValue (QueueSize (QueueSizeUnit::BYTES, size)));
 
-  if (queue_disc_type.compare ("ns3::PfifoFastQueueDisc") == 0)
-  {
     tchPfifo.Install (d.GetLeft()->GetDevice(1));
     tchPfifo.Install (d.GetRight()->GetDevice(1));
-  }
-  else if (queue_disc_type.compare ("ns3::CoDelQueueDisc") == 0)
-  {
-    tchCoDel.Install (d.GetLeft()->GetDevice(1));
-    tchCoDel.Install (d.GetRight()->GetDevice(1));
-  }
-  else
-  {
-    NS_FATAL_ERROR ("Queue not recognized. Allowed values are ns3::CoDelQueueDisc or ns3::PfifoFastQueueDisc");
-  }
+  
 
-  // Assign IP Addresses
+  // Ip adresi atamaları
   d.AssignIpv4Addresses (Ipv4AddressHelper ("10.1.1.0", "255.255.255.0"),
                          Ipv4AddressHelper ("10.2.1.0", "255.255.255.0"),
                          Ipv4AddressHelper ("10.3.1.0", "255.255.255.0"));
@@ -256,7 +312,7 @@ int main (int argc, char *argv[])
   NS_LOG_INFO ("Initialize Global Routing.");
   Ipv4GlobalRoutingHelper::PopulateRoutingTables ();
 
-  // Install apps in left and right nodes
+  // sağ ve sol node'lara veri atamaları  
   uint16_t port = 50000;
   Address sinkLocalAddress (InetSocketAddress (Ipv4Address::GetAny (), port));
   PacketSinkHelper sinkHelper ("ns3::TcpSocketFactory", sinkLocalAddress);
@@ -271,7 +327,7 @@ int main (int argc, char *argv[])
 
   for (uint32_t i = 0; i < d.LeftCount (); ++i)
   {
-    // Create an on/off app sending packets to the left side
+    
     AddressValue remoteAddress (InetSocketAddress (d.GetRightIpv4Address (i), port));
     Config::SetDefault ("ns3::TcpSocket::SegmentSize", UintegerValue (tcp_adu_size));
     BulkSendHelper ftp ("ns3::TcpSocketFactory", Address ());
@@ -280,34 +336,26 @@ int main (int argc, char *argv[])
     ftp.SetAttribute ("MaxBytes", UintegerValue (data_mbytes * 1000000));
 
     ApplicationContainer clientApp = ftp.Install (d.GetLeft (i));
-    clientApp.Start (Seconds (start_time * i)); // Start after sink
-    clientApp.Stop (Seconds (stop_time - 3)); // Stop before the sink
+    clientApp.Start (Seconds (start_time * i)); 
+    clientApp.Stop (Seconds (stop_time - 3)); 
   }
 
-  // Flow monitor
-  FlowMonitorHelper flowHelper;
-  if (flow_monitor)
-  {
-    flowHelper.InstallAll ();
-  }
+    FlowMonitorHelper flowHelper;
+    Ptr<FlowMonitor> monitor = flowHelper.InstallAll();
+    
+    std::vector<PerformanceMetrics> metrics;
+    
+    
+    Simulator::Schedule(Seconds(0.1), &CollectMetrics, monitor, 0.1, &metrics, duration);  
+    Simulator::Stop(Seconds(duration));
+    Simulator::Run();  
+  
+    monitor->CheckForLostPackets();
 
-  // Count RX packets
-  for (uint32_t i = 0; i < d.RightCount (); ++i)
-  {
-    rxPkts.push_back(0);
-    Ptr<PacketSink> pktSink = DynamicCast<PacketSink>(sinkApps.Get(i));
-    pktSink->TraceConnectWithoutContext ("Rx", MakeBoundCallback (&CountRxPkts, i));
-  }
+    SaveMetricsToFiles(metrics);
 
-  Simulator::Stop (Seconds (stop_time));
-  Simulator::Run ();
 
-  if (flow_monitor)
-    {
-      flowHelper.SerializeToXmlFile (prefix_file_name + ".flowmonitor", true, true);
-    }
-
-  if (transport_prot.compare ("ns3::TcpRl") == 0 or transport_prot.compare ("ns3::TcpRlTimeBased") == 0)
+  if ( transport_prot.compare ("ns3::TcpRlTimeBased") == 0)
   {
     openGymInterface->NotifySimulationEnd();
   }

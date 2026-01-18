@@ -1,0 +1,4 @@
+./waf configure --with-python=/usr/bin/python3.10 --enable-examples
+./waf --run "new-tcp --transport_prot=TcpNewReno"
+./waf --run "new-tcp --transport_prot=TcpCubic"
+./waf --run "new-tcp --transport_prot=TcpRlTimeBased"
