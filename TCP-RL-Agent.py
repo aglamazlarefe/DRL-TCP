@@ -3,14 +3,14 @@
 import math
 import sys
 import argparse
-import os  # Dosya işlemleri için gerekli
+import os  # Required for file operations
 
 import numpy as np
 import matplotlib as mpl
 import matplotlib.pyplot as plt
 
 import tensorflow as tf
-# ns3gym modülünün tam yolunu Python'a elle gösteriyoruz
+# Manually add the full path of the ns3gym module to Python
 ns3gym_path = '/home/aglamazlarefe/ns-allinone-3.35/ns-3.35/contrib/opengym/model'
 if ns3gym_path not in sys.path:
     sys.path.append(ns3gym_path)
@@ -18,34 +18,34 @@ if ns3gym_path not in sys.path:
 from ns3gym import ns3env
 from tcp_base import TcpTimeBased, TcpEventBased
 
-# GPU kullanımını devre dışı bırak (CPU yeterli)
+# Disable GPU usage (CPU is sufficient)
 os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
 
-# Dosya oluşturma ve loglama
+# File creation and logging
 try:
     w_file = open('run.log', 'w')
 except:
     w_file = sys.stdout
 
-# Argümanları ayarla
-parser = argparse.ArgumentParser(description='Simülasyon betiğini başlatma/kapatma')
+# Set arguments
+parser = argparse.ArgumentParser(description='Start/Stop simulation script')
 parser.add_argument('--start',
                     type=int,
                     default=1,
-                    help='ns-3 simülasyon betiğini başlatma 0/1, Varsayılan: 1')
+                    help='Start ns-3 simulation script 0/1, Default: 1')
 parser.add_argument('--iterations',
                     type=int,
-                    default=100,  # Eğitim için varsayılanı artırdık
-                    help='Tekrar sayısı, Varsayılan: 100')
+                    default=100,  # Increased default for training
+                    help='Number of iterations, Default: 100')
 parser.add_argument('--steps',
                     type=int,
-                    default=1000, # Adım sayısını artırdık
-                    help='Adım sayısı, Varsayılan: 1000')
+                    default=1000, # Increased number of steps
+                    help='Number of steps, Default: 1000')
 parser.add_argument('--mode',
                     type=str,
                     default='train',
                     choices=['train', 'test'],
-                    help='train: Modeli eğitir ve kaydeder. test: Kayıtlı modeli yükler ve kullanır.')
+                    help='train: Trains and saves the model. test: Loads and uses the saved model.')
 
 args = parser.parse_args()
 
@@ -53,23 +53,23 @@ startSim = bool(args.start)
 iterationNum = int(args.iterations)
 maxSteps = int(args.steps)
 
-# ns-3 ortamını başlatmak için ayarları yap
+# Settings to start the ns-3 environment
 port = 5555
-simTime = maxSteps / 10.0 # simülasyon süresi saniye cinsinden
+simTime = maxSteps / 10.0 # simulation time in seconds
 seed = 12
-simArgs = {"--duration": str(simTime),} # str dönüşümü eklendi
+simArgs = {"--duration": str(simTime),} # str conversion added
 
 dashes = "-"*18
-print(f"[{dashes} Mod: {args.mode.upper()} {dashes}]")
-input(f"[{dashes} Başlamak için enter'a basınız {dashes}]")
+print(f"[{dashes} Mode: {args.mode.upper()} {dashes}]")
+input(f"[{dashes} Press enter to start {dashes}]")
 
-# Ortamı oluştur
+# Create the environment
 env = ns3env.Ns3Env(port=port, startSim=startSim, simSeed=seed, simArgs=simArgs)
 
 ob_space = env.observation_space
 ac_space = env.action_space
 
-# Ajanı al veya oluştur
+# Get or create the agent
 def get_agent(state):
     socketUuid = state[0]
     tcpEnvType = state[1]
@@ -87,7 +87,7 @@ get_agent.tcpAgents = {}
 get_agent.ob_space = ob_space
 get_agent.ac_space = ac_space
 
-# Sinir Ağı Modeli
+# Neural Network Model
 def modeler(input_size, output_size):
     model = tf.keras.Sequential()
     model.add(tf.keras.layers.Input(shape=(input_size,)))
@@ -95,43 +95,43 @@ def modeler(input_size, output_size):
     model.add(tf.keras.layers.Dense(output_size, activation='softmax'))
     return model
 
-# Durum boyutunu belirle
+# Determine state size
 state_size = ob_space.shape[0] - 4 
 
-# --- AKSİYON AYARLARI (ROKET EKLENDİ) ---
-action_size = 4  # Boyutu 4'e çıkardık
+# --- ACTION SETTINGS (ROCKET ADDED) ---
+action_size = 4  # Increased size to 4
 action_mapping = {}
-action_mapping[0] = 0         # Sabit
-action_mapping[1] = 1500      # Normal Artış
-action_mapping[2] = -150      # Azalt
-action_mapping[3] = 4000      # ROKET START (Hızlı Başlangıç)
+action_mapping[0] = 0         # Constant
+action_mapping[1] = 1500      # Normal Increase
+action_mapping[2] = -150      # Decrease
+action_mapping[3] = 4000      # ROCKET START (Fast Start)
 
-# MODEL DOSYA ADI
+# MODEL FILE NAME
 MODEL_FILE = "tcp_rl_model.h5"
 
-# --- MODEL YÜKLEME / OLUŞTURMA MANTIĞI ---
+# --- MODEL LOADING / CREATING LOGIC ---
 if args.mode == 'test':
-    # TEST MODU: Eğitilmiş beyni yükle
+    # TEST MODE: Load trained brain
     if os.path.exists(MODEL_FILE):
-        print(f"Eğitilmiş model yükleniyor: {MODEL_FILE}")
+        print(f"Loading trained model: {MODEL_FILE}")
         model = tf.keras.models.load_model(MODEL_FILE)
-        print("Model yüklendi! Hazır bilgiyle başlanıyor.")
+        print("Model loaded! Starting with ready knowledge.")
         
-        # Test modunda keşif (rastgelelik) yasak!
+        # Exploration (randomness) forbidden in test mode!
         epsilon = 0.0 
         min_epsilon = 0.0
     else:
-        print("UYARI: Model dosyası bulunamadı! Lütfen önce --mode train ile eğitim yapın.")
-        sys.exit() # Programdan çık
+        print("WARNING: Model file not found! Please train first using --mode train.")
+        sys.exit() # Exit program
 else:
-    # EĞİTİM MODU: Sıfırdan model oluştur
-    print("Eğitim modu başlatılıyor. Yeni model oluşturuluyor...")
+    # TRAINING MODE: Create model from scratch
+    print("Starting training mode. Creating new model...")
     model = modeler(state_size, action_size)
     
-    # Epsilon ayarları normal (keşif açık)
+    # Epsilon settings normal (exploration on)
     epsilon = 1.0 
 
-# Modeli derle (Learning Rate 1e-3 yapıldı)
+# Compile model (Learning Rate set to 1e-3)
 model.compile(optimizer=tf.keras.optimizers.Adam(learning_rate=1e-3),
               loss='categorical_crossentropy',
               metrics=['accuracy'])
@@ -139,15 +139,15 @@ model.compile(optimizer=tf.keras.optimizers.Adam(learning_rate=1e-3),
 if args.mode == 'train':
     model.summary()
 
-# Epsilon Decay Ayarları
-epsilon_decay_param = iterationNum * 10 # Daha uzun süre keşif yapsın
-min_epsilon = 0.01 # Test modunda zaten 0 olacak
+# Epsilon Decay Settings
+epsilon_decay_param = iterationNum * 10 # Allow exploration for longer
+min_epsilon = 0.01 # Will be 0 in test mode anyway
 epsilon_decay = (((epsilon_decay_param*maxSteps) - 1.0) / (epsilon_decay_param*maxSteps))
 
-# Q-learning indirim faktörü
+# Q-learning discount factor
 discount_factor = 0.95
 
-# Loglama değişkenleri
+# Logging variables
 total_reward = 0
 reward_history = []
 cWnd_history = []
@@ -155,7 +155,7 @@ rtt_history = []
 tp_history = []
 recency = maxSteps // 15
 
-# --- ANA DÖNGÜ ---
+# --- MAIN LOOP ---
 for iteration in range(iterationNum):
     state = env.reset()
     state = state[4:]
@@ -167,9 +167,9 @@ for iteration in range(iterationNum):
     
     try:
         for step in range(maxSteps):
-            # Görsellik
+            # Visualization
             pretty_index = step % 4
-            print("\r[{}] Mod: {} | İterasyon: {}/{} | Dosya: {} {}".format(
+            print("\r[{}] Mode: {} | Iteration: {}/{} | File: {} {}".format(
                 pretty_slash[pretty_index],
                 args.mode.upper(),
                 iteration + 1,
@@ -178,28 +178,28 @@ for iteration in range(iterationNum):
                 '.'*(pretty_index+1)
             ), end='')
 
-            # Epsilon-greedy seçim
+            # Epsilon-greedy selection
             if step == 0 or np.random.rand(1) < epsilon:
                 action_index = np.random.randint(0, action_size)
             else:
                 action_index = np.argmax(model.predict(state)[0])
 
-            # Aksiyon hesapla
+            # Calculate action
             calc_cWnd = cWnd + action_mapping[action_index]
 
-            # Congestion window'u sınırla (Heuristic)
+            # Limit Congestion window (Heuristic)
             thresh = state[0][0] # ssThresh
             if step+1 > recency:
                 if len(tp_history) > recency:
                     tp_dev = math.sqrt(np.var(tp_history[(-recency):]))
                     tp_1per = 0.01 * throughput
                     if tp_dev < tp_1per:
-                         thresh = cWnd
+                          thresh = cWnd
             new_cWnd = max(init_cWnd, (min(thresh, calc_cWnd)))
             new_ssThresh = int(cWnd/2)
             actions = [new_ssThresh, new_cWnd]
 
-            # Ortama gönder
+            # Send to environment
             next_state, reward, done, _ = env.step(actions)
             total_reward += reward
 
@@ -209,7 +209,7 @@ for iteration in range(iterationNum):
             throughput = next_state[11]
             next_state = np.reshape(next_state, [1, state_size])
             
-            # --- MODEL EĞİTİMİ (SADECE TRAIN MODUNDA) ---
+            # --- MODEL TRAINING (ONLY IN TRAIN MODE) ---
             if args.mode == 'train':
                 target = reward
                 if not done:
@@ -218,7 +218,7 @@ for iteration in range(iterationNum):
                 target_f = model.predict(state)
                 target_f[0][action_index] = target
                 
-                # Modeli güncelle
+                # Update model
                 model.fit(state, target_f, epochs=1, verbose=0)
             # ----------------------------------------------
 
@@ -228,8 +228,8 @@ for iteration in range(iterationNum):
             if args.mode == 'train' and epsilon > min_epsilon:
                 epsilon *= epsilon_decay
 
-            # Verileri kaydet
-            if iteration == iterationNum - 1: # Sadece son iterasyonu kaydet (grafik şişmesin)
+            # Save data
+            if iteration == iterationNum - 1: # Save only the last iteration (avoid plot bloat)
                 reward_history.append(total_reward)
                 rtt_history.append(rtt)
                 cWnd_history.append(cWnd)
@@ -239,16 +239,16 @@ for iteration in range(iterationNum):
         if iteration+1 == iterationNum:
             break
 
-# --- EĞİTİM BİTTİĞİNDE MODELİ KAYDET ---
+# --- SAVE MODEL WHEN TRAINING IS FINISHED ---
 if args.mode == 'train':
-    print(f"\n\nEğitim tamamlandı. Model kaydediliyor: {MODEL_FILE}")
+    print(f"\n\nTraining completed. Saving model: {MODEL_FILE}")
     model.save(MODEL_FILE)
-    print("Model başarıyla kaydedildi.")
+    print("Model saved successfully.")
 
-# --- GRAFİK ÇİZİMİ (Sadece son turu çizer) ---
-print("\nGrafikler hazırlanıyor...")
+# --- PLOTTING (Draws only the last round) ---
+print("\nPreparing plots...")
 with open('rtt_tp_history.txt', 'w') as file:
-    file.write("Adım\tRTT (μs)\tThroughput (bits)\n")
+    file.write("Step\tRTT (μs)\tThroughput (bits)\n")
     for i in range(len(rtt_history)):
         file.write(f"{i+1}\t{rtt_history[i]}\t{tp_history[i]}\n")
 
@@ -282,4 +282,4 @@ ax[1, 1].set_ylabel('Value')
 ax[1, 1].grid(True)
 
 plt.savefig('improved_plots.png')
-print("Grafikler 'improved_plots.png' olarak kaydedildi.")
+print("Plots saved as 'improved_plots.png'.")
