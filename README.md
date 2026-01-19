@@ -45,15 +45,15 @@ The agent eliminates the aggressive "sawtooth" pattern observed in standard TCP 
 
 ### 🔹 Throughput Comparison
 The DRL agent (Green) successfully matches the bandwidth utilization of TCP Cubic (Blue) without aggressive overshooting.
-![Throughput Graph](comparison_throughput.png)
+![Throughput Graph](graphs/comparison_throughput.png)
 
 ### 🔹 RTT (Latency) Analysis
 **Critical Result:** The DRL agent maintains a consistently low RTT, whereas Cubic causes high latency spikes due to buffer filling.
-![RTT Graph](comparison_rtt.png)
+![RTT Graph](graphs/comparison_rtt.png)
 
 ### 🔹 Cumulative Packet Loss
 The DRL agent demonstrates superior reliability with almost zero packet loss compared to Cubic.
-![Loss Graph](comparison_loss.png)
+![Loss Graph](graphs/comparison_loss.png)
 
 ---
 
