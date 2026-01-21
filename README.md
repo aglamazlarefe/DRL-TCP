@@ -112,3 +112,12 @@ If you use this code or our findings in your research, please cite our paper:
   year={2025},
   url={[https://arxiv.org/abs/2508.01047](https://arxiv.org/abs/2508.01047)}
 }
+```
+
+🤝 Contributors
+Efe Ağlamazlar - Lead Developer & AI Implementation
+Emirhan Eken - Network Simulation & Analysis
+Harun Batur Geçici - Research & Documentation
+<p align="center">
+<sub>This project is a research implementation for educational purposes.</sub>
+</p>
