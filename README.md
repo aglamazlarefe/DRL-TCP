@@ -127,8 +127,3 @@ If you use this code or our findings in your research, please cite our paper:
 <p align="center">
   <sub>This project is a research implementation for educational purposes.</sub>
 </p>
-
-
-<p align="center">
-<sub>This project is a research implementation for educational purposes.</sub>
-</p>
