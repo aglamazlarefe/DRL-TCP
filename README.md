@@ -114,11 +114,20 @@ If you use this code or our findings in your research, please cite our paper:
 }
 ```
 
-🤝 Contributors
+---
 
-Efe Ağlamazlar - Lead Developer & AI Implementation
-Emirhan Eken - Network Simulation & Analysis
-Harun Batur Geçici - Research & Documentation
+## 🤝 Contributors
+
+* **Efe Ağlamazlar** - *Lead Developer & AI Implementation*
+* **Emirhan Eken** - *Network Simulation & Analysis*
+* **Harun Batur Geçici** - *Research & Documentation*
+
+---
+
+<p align="center">
+  <sub>This project is a research implementation for educational purposes.</sub>
+</p>
+
 
 <p align="center">
 <sub>This project is a research implementation for educational purposes.</sub>
