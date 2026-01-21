@@ -1,9 +1,13 @@
 # 🧠 Deep Reinforcement Learning based TCP Congestion Control
 
+[![arXiv](https://img.shields.io/badge/arXiv-2508.01047-b31b1b.svg)](https://arxiv.org/abs/2508.01047)
+[![PwC](https://img.shields.io/endpoint.svg?url=https://paperswithcode.com/badge/deep-reinforcement-learning-based-tcp/tcp-congestion-control-on-ns-3)](https://paperswithcode.com/paper/deep-reinforcement-learning-based-tcp)
 ![Language](https://img.shields.io/badge/Language-C%2B%2B%20%7C%20Python-blue)
 ![Platform](https://img.shields.io/badge/Platform-NS--3%20Simulator-orange)
 ![Framework](https://img.shields.io/badge/AI-TensorFlow%20%7C%20OpenAI%20Gym-green)
 ![Status](https://img.shields.io/badge/Status-Research%20Prototype-yellow)
+
+> **Official Implementation** of the paper: [**Deep Reinforcement Learning based TCP Congestion Control**](https://arxiv.org/abs/2508.01047)
 
 This repository contains the implementation of a **Deep Q-Network (DQN)** based TCP congestion control algorithm. The project utilizes the **NS-3 Network Simulator** coupled with **OpenAI Gym** via the `ns3-gym` interface to train an intelligent agent capable of managing network congestion dynamically.
 
@@ -96,14 +100,15 @@ Since NS-3 OpenGym works with two separate processes (Python Agent & C++ Simulat
 
 ---
 
-## 🤝 Contributors
+## 📄 Citation
 
-* **Efe Ağlamazlar** - *Lead Developer & AI Implementation*
-* **Emirhan Eken** - *Network Simulation & Analysis*
-* **Harun Batur Geçici** - *Research & Documentation*
+If you use this code or our findings in your research, please cite our paper:
 
----
-
-<p align="center">
-  <sub>This project is a research implementation for educational purposes.</sub>
-</p>
+```bibtex
+@article{aglamazlar2025tcpdrl,
+  title={Deep Reinforcement Learning based TCP Congestion Control},
+  author={Ağlamazlar, Efe and Eken, Emirhan and Geçici, Harun Batur},
+  journal={arXiv preprint arXiv:2508.01047},
+  year={2025},
+  url={[https://arxiv.org/abs/2508.01047](https://arxiv.org/abs/2508.01047)}
+}
